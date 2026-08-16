@@ -1,54 +1,61 @@
 library(dplyr)
-library(tidyr)
 library(e1071)
 library(readr)
+library(tidyr)
 
-# 读取数据
-df <- read_csv('burgers_business.csv')
+# Load prepared burger-business data
+df <- read_csv("burgers_business.csv", show_col_types = FALSE)
 
-# 根据列的数据类型填充缺失值
-df <- df %>% mutate(across(where(is.character), ~ifelse(. == "TRUE", TRUE, FALSE)))
-# True/False 转换为 1/0
-df <- df %>% mutate(across(where(is.logical), as.integer))
+# Normalize logical-style attributes and missing values
+df <- df %>%
+  mutate(across(where(is.character), ~ case_when(
+    toupper(.) == "TRUE" ~ "1",
+    toupper(.) == "FALSE" ~ "0",
+    TRUE ~ .
+  ))) %>%
+  mutate(across(-c(stars, review_count), ~ as.numeric(.))) %>%
+  mutate(across(everything(), ~ replace_na(., 0)))
 
-# 创建success_metric列
+# Success metric combines rating quality and review volume
 df$success_metric <- df$stars * log(df$review_count + 1)
 
-# 选择变量
 X <- subset(df, select = -c(stars, review_count, success_metric))
 y <- df$success_metric
 
-# 划分训练和测试集
 set.seed(42)
-train_indices <- sample(1:nrow(df), 0.8 * nrow(df))
+train_indices <- sample(seq_len(nrow(df)), 0.8 * nrow(df))
 X_train <- X[train_indices, ]
 y_train <- y[train_indices]
 X_test <- X[-train_indices, ]
 y_test <- y[-train_indices]
 
-# 训练SVR模型
-svr_model <- svm(y_train ~ ., data = X_train)
+train_data <- X_train
+train_data$success_metric <- y_train
+svr_model <- svm(success_metric ~ ., data = train_data)
 
-save(svr_model, file = 'new_svr_model.RData')
-
-# 打印前几个预测值作为示例
+predictions <- predict(svr_model, X_test)
 print(head(predictions))
 
+mse <- mean((predictions - y_test)^2)
+r2 <- 1 - sum((predictions - y_test)^2) / sum((y_test - mean(y_test))^2)
+cat(sprintf("Test MSE: %.4f\n", mse))
+cat(sprintf("Test R2: %.4f\n", r2))
+
+save(svr_model, file = "new_svr_model.RData")
+
+# Example restaurant attribute profile
 new_observation <- data.frame(
-  BusinessAcceptsCreditCards = 1,  # 假设接受信用卡
-  OutdoorSeating = 0,              # 没有户外座位
-  RestaurantsReservations = 0,      # 不接受预订
-  Caters = 1,                       # 提供餐饮服务
-  RestaurantsTakeOut = 1,           # 提供外卖
-  GoodForKids = 0,                  # 不适合儿童
-  RestaurantsGoodForGroups = 1,     # 适合团体
-  RestaurantsDelivery = 1,          # 提供送餐服务
-  HasTV = 0,                        # 没有电视
-  BikeParking = 1                   # 有自行车停车位
+  BusinessAcceptsCreditCards = 1,
+  OutdoorSeating = 0,
+  RestaurantsReservations = 0,
+  Caters = 1,
+  RestaurantsTakeOut = 1,
+  GoodForKids = 0,
+  RestaurantsGoodForGroups = 1,
+  RestaurantsDelivery = 1,
+  HasTV = 0,
+  BikeParking = 1
 )
 
-# 使用模型进行预测
 predicted_value <- predict(svr_model, new_observation)
-
-# 打印预测结果
 print(predicted_value)

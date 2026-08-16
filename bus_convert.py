@@ -1,33 +1,52 @@
-import pandas as pd
+import argparse
 import json
 
+import pandas as pd
 
-# read and convert json to csv
-def process_attributes(attr):
-    if isinstance(attr, dict):
-        return {k: process_attributes(v) for k, v in attr.items()}
-    else:
-        if isinstance(attr, bool):
-            return int(attr)
-        return attr
+BUSINESS_ATTRIBUTES = [
+    "BusinessAcceptsCreditCards",
+    "OutdoorSeating",
+    "RestaurantsReservations",
+    "Caters",
+    "RestaurantsTakeOut",
+    "GoodForKids",
+    "RestaurantsGoodForGroups",
+    "RestaurantsDelivery",
+    "HasTV",
+    "BikeParking",
+]
 
 
-file_path_business = r"C:\Users\Daniel Ye\Desktop\yelp_Fall2023\yelp_Fall2023\business.json"
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Extract burger restaurants and selected attributes from Yelp business JSON."
+    )
+    parser.add_argument("business_json", help="Path to Yelp business.json")
+    parser.add_argument("--output", default="burgers_business.csv")
+    return parser.parse_args()
 
-with open(file_path_business, 'r', encoding='utf-8') as file:  # 指定utf-8编码
-    data = [json.loads(line) for line in file]
 
-df_business = pd.DataFrame(data)
+def main():
+    args = parse_args()
 
-df_burgers = df_business[df_business['categories'].str.contains('Burgers', na=False)]
+    with open(args.business_json, "r", encoding="utf-8") as file:
+        records = [json.loads(line) for line in file]
 
-df_burgers.loc[:, 'attributes'] = df_burgers['attributes'].apply(process_attributes)
+    businesses = pd.DataFrame(records)
+    burgers = businesses[
+        businesses["categories"].str.contains("Burgers", na=False)
+    ].copy()
 
-attributes_expanded = df_burgers['attributes'].apply(pd.Series)
+    attributes = burgers["attributes"].apply(
+        lambda value: value if isinstance(value, dict) else {}
+    )
+    for column in BUSINESS_ATTRIBUTES:
+        burgers[column] = attributes.apply(lambda attr: attr.get(column))
 
-df_burgers = pd.concat([df_burgers.drop('attributes', axis=1), attributes_expanded], axis=1)
+    columns = ["state", "business_id", "stars", "review_count"] + BUSINESS_ATTRIBUTES
+    burgers[columns].to_csv(args.output, index=False)
+    print(f"Saved {len(burgers):,} burger businesses to {args.output}")
 
-required_columns = ['state', 'business_id', 'stars', 'review_count'] + list(attributes_expanded.columns)
-df_burgers_final = df_burgers[required_columns]
 
-df_burgers_final.to_csv('burgers_business.csv', index=False)
+if __name__ == "__main__":
+    main()
